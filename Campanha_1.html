@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<title>Painel de Campanhas & Funcionários</title>
+<style>
+body { font-family: Arial, sans-serif; background: #f0f0f0; padding: 20px; color: #333; }
+.container { max-width: 1000px; margin: 0 auto; }
+.card { background: #fff; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.card h2 { margin-top: 0; }
+input, button { padding: 8px; margin: 4px 0; width: 100%; }
+button { cursor: pointer; }
+.table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.table th, .table td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+</style>
+</head>
+<body>
+<div class="container">
+	
+  <div class="card">
+    <h2>Progresso da Campanha</h2>
+    <canvas id="graficoFuncionarios" width="800" height="400"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Campanha</h2>
+    <p>Valor atual: <span id="campanhaValor">0</span></p>
+    <p id="campanhaErro" class="error"></p> 
+  </div>
+
+  <div class="card">
+  	<h2>Funcionários</h2>
+  	<button id="btnRefreshFuncionarios">Atualizar Tabela</button>
+  	<table class="table" id="tabelaFuncionarios">
+  	  <thead>
+     	  <tr><th>ID</th><th>Matrícula</th><th>Nome</th><th>Valor</th><th>Peso</th><th>Meta</th></tr>
+   	  </thead>
+   	  <tbody></tbody>
+   	</table>
+    <p id="tabelaErro" class="error"></p>
+  </div>	
+
+  <div class="card">
+    <input type="number" id="campanhaInput" placeholder="Novo valor">
+    <button id="atualizaCampanha">Atualizar Campanha</button>
+  </div>  
+
+  <div class="card">
+    <h2>Incluir Funcionário</h2>
+    <input type="text" id="funcMatricula" placeholder="Matrícula">
+    <input type="text" id="funcNome" placeholder="Nome">
+    <input type="number" id="funcValor" placeholder="Valor">
+    <input type="number" id="funcPeso" placeholder="Peso">
+    <input type="number" id="funcMeta" placeholder="Meta">
+    <button id="incluiFuncionario">Incluir Funcionário</button>
+  </div>
+
+  <div class="card">
+    <h2>Adicionar Valor ao Funcionário</h2>
+    <input type="text" id="funcMatAdd" placeholder="Matrícula do Funcionário">
+    <input type="number" id="funcValorAdd" placeholder="Valor a adicionar">
+    <button id="adicionaValorFuncionario">Adicionar Valor</button>
+  </div>
+
+<script>
+const API_BASE = 'https://meu-appconsorcio-bnh3ftgydng4gqac.brazilsouth-01.azurewebsites.net';
+let campanhaAtual = 0;
+let graficoFuncionariosChart = null;
+
+// Inicializa a página
+window.addEventListener('DOMContentLoaded', () => {
+  getCampanha();
+  getFuncionarios();
+  renderGraficoFuncionarios();
+});
+
+// --- Funções principais ---
+async function getCampanha() {
+  document.getElementById('campanhaErro').textContent = '';
+  try {
+    const res = await fetch(`${API_BASE}/api/Campanhas`);
+    if (!res.ok) throw new Error(`Status: ${res.status}`);
+    const data = await res.json();
+    campanhaAtual = data.value?.[0]?.vrcampanha ?? 0;
+    document.getElementById('campanhaValor').textContent = campanhaAtual;
+  } catch (err) {
+    document.getElementById('campanhaErro').textContent = 'Erro ao buscar campanha: ' + err.message;
+  }
+}
+
+async function getFuncionarios() {
+  const erroEl = document.getElementById('tabelaErro');
+  erroEl.textContent = '';
+  try {
+    const res = await fetch(`${API_BASE}/api/Dados`);
+    if (!res.ok) throw new Error(`Status: ${res.status}`);
+    const data = await res.json();
+    const tbody = document.querySelector('#tabelaFuncionarios tbody');
+    tbody.innerHTML = '';
+
+    if (Array.isArray(data.value)) {
+      data.value.forEach(f => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${f.id}</td><td>${f.matricula}</td><td>${f.nome}</td><td>${f.valor}</td><td>${f.peso}</td><td>${f.meta}</td>`;
+        tbody.appendChild(tr);
+      });
+    } else {
+      erroEl.textContent = "Erro: API retornou formato inesperado.";
+    }
+  } catch (err) {
+    erroEl.textContent = 'Erro ao buscar funcionários: ' + err.message;
+  }
+}
+
+async function renderGraficoFuncionarios() {
+  try {
+    const res = await fetch(`${API_BASE}/api/Dados`);
+    if (!res.ok) throw new Error(`Status: ${res.status}`);
+    const data = await res.json();
+
+    const labels = ["Campanha", ...data.value.map(f => f.nome)];
+    const metas = [campanhaAtual, ...data.value.map(f => f.meta)];
+    
+    let totalRealizado = 0;
+    if (Array.isArray(data.value)) {
+      data.value.forEach(f => totalRealizado += (f.valor ?? 0));
+    }
+
+    const realizados = [totalRealizado, ...data.value.map(f => f.valor)];
+
+    const ctx = document.getElementById('graficoFuncionarios').getContext('2d');
+
+    if (graficoFuncionariosChart) {
+      graficoFuncionariosChart.data.labels = labels;
+      graficoFuncionariosChart.data.datasets[0].data = metas;
+      graficoFuncionariosChart.data.datasets[1].data = realizados;
+      graficoFuncionariosChart.update();
+    } else {
+      graficoFuncionariosChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Meta',
+              data: metas,
+              backgroundColor: 'rgba(0, 0, 255, 1)',
+            },
+            {
+              label: 'Realizado',
+              data: realizados,
+              backgroundColor: 'rgba(250, 117, 4, 1)',
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'top' },
+            title: {
+              display: true,
+              text: 'Meta x Realizado (Campanha + Funcionários)'
+            },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            y: { beginAtZero: true },
+            x: { stacked: false }
+          }
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error("Erro ao renderizar gráfico:", err.message);
+  }
+}
+
+// --- Eventos dos botões ---
+document.getElementById('atualizaCampanha').addEventListener('click', async ()=>{
+  const valor = document.getElementById('campanhaInput').value;
+  try {
+    const res = await fetch(`${API_BASE}/api/Campanhas/Atualiza_campanha?valor=${valor}`, { method: 'POST', headers: { 'accept': '*/*' } });
+    if (!res.ok) throw new Error(`Status: ${res.status}`);
+    await getCampanha();
+    await renderGraficoFuncionarios();
+  } catch(err) {
+    document.getElementById('campanhaErro').textContent = 'Erro ao atualizar campanha: ' + err.message;
+  }
+  document.getElementById('campanhaInput').value=''	
+});
+
+document.getElementById('incluiFuncionario').addEventListener('click', async ()=>{
+  const matricula = document.getElementById('funcMatricula').value;
+  const nome = document.getElementById('funcNome').value;
+  const valor = document.getElementById('funcValor').value;
+  const peso = document.getElementById('funcPeso').value;
+  const meta = document.getElementById('funcMeta').value;
+  await fetch(`${API_BASE}/api/Dados?matricula=${matricula}&nome=${nome}&valor=${valor}&peso=${peso}&meta=${meta}`, { method: 'POST', headers: { 'accept': '*/*' } });
+  await getFuncionarios();
+  await renderGraficoFuncionarios();
+
+  document.getElementById('funcMatricula').value='';
+  document.getElementById('funcNome').value='';
+  document.getElementById('funcValor').value='';
+  document.getElementById('funcPeso').value='';
+  document.getElementById('funcMeta').value='';	
+});
+
+document.getElementById('adicionaValorFuncionario').addEventListener('click', async ()=>{
+  const matricula = document.getElementById('funcMatAdd').value;
+  const valor = document.getElementById('funcValorAdd').value;
+  await fetch(`${API_BASE}/api/Dados/adicionaValor-valor?matricula=${matricula}&valor=${valor}`, { method: 'POST', headers: { 'accept': '*/*' } });
+  await getFuncionarios();
+  await renderGraficoFuncionarios();
+  document.getElementById('funcMatAdd').value='';
+  document.getElementById('funcValorAdd').value='';
+});
+
+document.getElementById('btnRefreshFuncionarios').addEventListener('click', async ()=>{
+  await getFuncionarios();
+  await renderGraficoFuncionarios();
+});
+
+</script>
+</body>
+</html>
